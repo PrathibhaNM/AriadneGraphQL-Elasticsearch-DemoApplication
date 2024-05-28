@@ -207,70 +207,9 @@ def resolve_updateOrder(_, info, order_id, customer_id=None, customer_full_name=
         print(f"Elasticsearch query error: {error}")
         raise error
 
-
-
-
-
-# @subscription.source("ordersLastMonth")
-# async def orders_last_month_generator(obj, info):
-#     try:
-#         #one_month_ago = datetime.now() - timedelta(days=30)
-#         query_body = {
-#             "query": {
-#                 "range": {
-#                     "order_date": {
-#                         "gte": "2024-01-01"
-#                     }
-#                 }
-#             },
-#             "size": 10  # Adjust batch size as needed
-#         }
-
-#         scrollData = es.search(
-#             index="kibana_sample_data_ecommerce",
-#             body=query_body,
-#             scroll="1m"  # Scroll timeout
-#         )
-
-#         while True:
-#             # Extract hits from the scroll response
-#             hits = scrollData["hits"]["hits"]
-#             if not hits:
-#                 break
-            
-#             orders_chunk = [
-#                 {
-#                     "order_id": hit["_source"]["order_id"],
-#                     "customer_id": hit["_source"]["customer_id"],
-#                     "customer_full_name": hit["_source"]["customer_full_name"],
-#                     "taxful_total_price": hit["_source"]["taxful_total_price"],
-#                     "order_date": hit["_source"]["order_date"]
-#                 }
-#                 for hit in hits
-#             ]
-
-#             yield orders_chunk
-#             scroll_id = scrollData["_scroll_id"]
-
-          
-#             scrollData = es.scroll(scroll_id=scroll_id, scroll="1m")
-
-            
-#             await asyncio.sleep(5)
-
-#     except Exception as error:
-#         print(f"Elasticsearch query error: {error}")
-#         raise error
-
-# @subscription.field("ordersLastMonth")
-# async def resolve_orders_last_month(orders, info):
-#     # Return the orders fetched from the subscription source
-#     return orders
-
-
-async def fetch_orders(queue):
+async def fetch_orders():
+    
     try:
-        
         now = datetime.now() 
         query_body = {
             "query": {
@@ -307,34 +246,47 @@ async def fetch_orders(queue):
                 for hit in hits
             ]
 
-            await queue.put(orders_chunk)
+            message = json.dumps({"orders": orders_chunk})
+            print("Publishing orders_chunk to Redis:", message) 
+            await broadcast.publish("orders_channel", message)
+           
             
             scroll_id = scrollData["_scroll_id"]
             scrollData = es.scroll(scroll_id=scroll_id, scroll="1m")
             await asyncio.sleep(2)
 
-        await queue.put(None)
+        # await queue.put(None)
 
     except Exception as error:
         print(f"ElasticSerach query error: {error}")
-        await queue.put(None)
         raise error
+    
+@subscription.source("ordersLastDay")
+async def orders_last_day_generator(obj,info):
+    print("In the subscription source")
+    asyncio.create_task(fetch_orders())
+     
+    async with broadcast.subscribe("orders_channel") as subscriber:
+        async for event in subscriber:
+           print("Received event from Redis:", event.message) 
+           message = json.loads(event.message)
+           yield message["orders"]
+        
+       
 
-
-@subscription.source("ordersLastMonth")
-async def orders_last_month_generator(obj,info):
-    queue=asyncio.Queue()
-    asyncio.create_task(fetch_orders(queue))
-
-    while True:
-        orders_chunk=await queue.get()
-        print(orders_chunk)
-        if orders_chunk is None:
-            break
-        yield orders_chunk
-
-@subscription.field("ordersLastMonth")
+@subscription.field("ordersLastDay")
 async def resolve_orders_last_month(orders, info):
     # Return the orders fetched from the subscription source
     return orders
+
+async def start_broadcast():
+    print("-----------")
+    await broadcast.connect()
+
+async def stop_broadcast():
+    await broadcast.disconnect()
+
+
+
+
 

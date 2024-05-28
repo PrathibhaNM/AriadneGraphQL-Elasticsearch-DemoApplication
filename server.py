@@ -1,7 +1,8 @@
 from ariadne import make_executable_schema, gql, load_schema_from_path
 from ariadne.asgi import GraphQL
 #from resolvers import query as resolvers_query
-from resolvers import query,mutation,subscription
+f
+from resolvers import query,mutation,subscription, start_broadcast,stop_broadcast
 from fastapi import FastAPI
 from ariadne.asgi.handlers import GraphQLTransportWSHandler
 
@@ -33,6 +34,13 @@ graphql= GraphQL(
 # app.add_route('/graphql',graphql)
 
 app.mount('/graphql', graphql)
+@app.on_event("startup")
+async def startup_event():
+    await start_broadcast()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await stop_broadcast()
 
 
 

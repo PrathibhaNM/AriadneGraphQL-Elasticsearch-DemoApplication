@@ -5,3 +5,4 @@ ELASTICSERACH INTEGRATION WITH ARIADNE(GRAPHQL LIBRARY)
 3. Set up the elasticsearch
 4. Once the Elasticsearch setup is done, you can check the connection through http://localhost:9200/
 5. Run the application using "uvicorn server:app --reload"
+6. Open your web browser or use a tool like GraphQL to interact with the GraphQL API. The GraphQL endpoint can be accessed at http://localhost:8000/graphql.
