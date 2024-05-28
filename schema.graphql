@@ -1,0 +1,32 @@
+type Query
+{
+    ordersByCustomer(customerId:Int!):[Order]
+    customerstats_BasedOnCategory(category:String!) :[CustomerStats]
+}
+
+type Mutation
+{
+    createOrder(order_id:Int!,customer_id:Int!,customer_full_name:String!,taxful_total_price:Float!,order_date:String!) : Order
+    updateOrder(order_id: Int!, customer_id: Int, customer_full_name: String, taxful_total_price: Float, order_date: String): Order
+}
+
+type Subscription
+{
+    ordersLastMonth: [Order]
+}
+
+type Order
+{
+    order_id:Int
+    customer_id:Int
+    customer_full_name:String
+    taxful_total_price:Float
+    order_date:String
+
+}
+type CustomerStats
+{
+    customerId:Int
+    avgOrderPrice:Float
+    totalOrders:Int
+}
