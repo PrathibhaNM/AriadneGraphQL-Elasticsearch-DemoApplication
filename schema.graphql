@@ -12,7 +12,7 @@ type Mutation
 
 type Subscription
 {
-    ordersLastMonth: [Order]
+    orderCreated: Order
 }
 
 type Order

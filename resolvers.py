@@ -10,10 +10,13 @@ from broadcaster import Broadcast
 import json
 
 
-
 # Initialize Elasticsearch client
 es = Elasticsearch(['http://localhost:9200'])
 broadcast = Broadcast("redis://localhost:6379")
+
+async def initialize_broadcast():
+    if not hasattr(broadcast, "_pub_conn") or broadcast._pub_conn is None:
+        await broadcast.connect()
 
 query = QueryType()
 mutation=MutationType()
@@ -25,9 +28,6 @@ def resolve_orders_by_customer(_, info, customerId):
    
     
     try:
-        
-        # query_body = get_orders_by_customer(customerId)
-        # print(query_body)
         
         results = es.search(
             index="kibana_sample_data_ecommerce",
@@ -47,7 +47,6 @@ def resolve_orders_by_customer(_, info, customerId):
             }
             for hit in results["hits"]["hits"]
         ]
-        # print(orders)
         return orders
 
     except Exception as error:
@@ -80,7 +79,7 @@ def resolve_customerstats_BasedOnCategory(_,info,category):
         raise error
     
 @mutation.field("createOrder")
-def resolve_createOrder(_,info,order_id,customer_id,customer_full_name,taxful_total_price, order_date):
+async def resolve_createOrder(_,info,order_id,customer_id,customer_full_name,taxful_total_price, order_date):
     try:
         new_order={
             "order_id":order_id,
@@ -91,6 +90,13 @@ def resolve_createOrder(_,info,order_id,customer_id,customer_full_name,taxful_to
 
         }
         es.index(index="kibana_sample_data_ecommerce",document=new_order)
+
+          # Publish the new order to Redis
+        await initialize_broadcast()
+        await broadcast.publish(channel="orders", message=json.dumps(new_order))
+        print(f"Published order: {new_order}")
+        # await broadcast.disconnect()
+
         return new_order
 
 
@@ -98,46 +104,6 @@ def resolve_createOrder(_,info,order_id,customer_id,customer_full_name,taxful_to
         print(f"Elasticserach query error : {error}")
         raise error
     
-# @mutation.field("updateOrder")
-# def resolve_updateOrder(_, info, order_id, customer_id=None, customer_full_name=None, taxful_total_price=None, order_date=None):
-#     try:
-#         # Search for the document by order_id
-#         search_result = es.search(
-#             index="kibana_sample_data_ecommerce",
-#             body={
-#                 "query": {
-#                     "term": {
-#                         "order_id": order_id
-#                     }
-#                 }
-#             }
-#         )
-        
-#         # Check if the document was found
-#         if not search_result["hits"]["hits"]:
-#             raise Exception(f"Order with order_id {order_id} not found.")
-        
-#         # Get the document ID and source
-#         doc_id = search_result["hits"]["hits"][0]["_id"]
-#         order = search_result["hits"]["hits"][0]["_source"]
-
-#         # Update fields if new values are provided
-#         if customer_id is not None:
-#             order["customer_id"] = customer_id
-#         if customer_full_name is not None:
-#             order["customer_full_name"] = customer_full_name
-#         if taxful_total_price is not None:
-#             order["taxful_total_price"] = taxful_total_price
-#         if order_date is not None:
-#             order["order_date"] = order_date
-
-#         # Index the updated order document
-#         es.index(index="kibana_sample_data_ecommerce", id=doc_id, document=order)
-#         return order
-
-#     except Exception as error:
-#         print(f"Elasticsearch query error: {error}")
-#         raise error
 
 @mutation.field("updateOrder")
 def resolve_updateOrder(_, info, order_id, customer_id=None, customer_full_name=None, taxful_total_price=None, order_date=None):
@@ -207,134 +173,16 @@ def resolve_updateOrder(_, info, order_id, customer_id=None, customer_full_name=
         print(f"Elasticsearch query error: {error}")
         raise error
 
+@subscription.source("orderCreated")
+async def order_created_generator(obj, info):
+    print("new order created")
+    # await broadcast.connect()
+    await initialize_broadcast()
+    async with broadcast.subscribe(channel="orders") as subscriber:
+        async for event in subscriber:
+            order_data = json.loads(event.message)
+            yield order_data
 
-
-
-
-# @subscription.source("ordersLastMonth")
-# async def orders_last_month_generator(obj, info):
-#     try:
-#         #one_month_ago = datetime.now() - timedelta(days=30)
-#         query_body = {
-#             "query": {
-#                 "range": {
-#                     "order_date": {
-#                         "gte": "2024-01-01"
-#                     }
-#                 }
-#             },
-#             "size": 10  # Adjust batch size as needed
-#         }
-
-#         scrollData = es.search(
-#             index="kibana_sample_data_ecommerce",
-#             body=query_body,
-#             scroll="1m"  # Scroll timeout
-#         )
-
-#         while True:
-#             # Extract hits from the scroll response
-#             hits = scrollData["hits"]["hits"]
-#             if not hits:
-#                 break
-            
-#             orders_chunk = [
-#                 {
-#                     "order_id": hit["_source"]["order_id"],
-#                     "customer_id": hit["_source"]["customer_id"],
-#                     "customer_full_name": hit["_source"]["customer_full_name"],
-#                     "taxful_total_price": hit["_source"]["taxful_total_price"],
-#                     "order_date": hit["_source"]["order_date"]
-#                 }
-#                 for hit in hits
-#             ]
-
-#             yield orders_chunk
-#             scroll_id = scrollData["_scroll_id"]
-
-          
-#             scrollData = es.scroll(scroll_id=scroll_id, scroll="1m")
-
-            
-#             await asyncio.sleep(5)
-
-#     except Exception as error:
-#         print(f"Elasticsearch query error: {error}")
-#         raise error
-
-# @subscription.field("ordersLastMonth")
-# async def resolve_orders_last_month(orders, info):
-#     # Return the orders fetched from the subscription source
-#     return orders
-
-
-async def fetch_orders(queue):
-    try:
-        
-        now = datetime.now() 
-        query_body = {
-            "query": {
-                "range": {
-                    "order_date": {
-                        "lte": now,
-                        "gte": now-timedelta(days=1)
-                    }
-                }
-            },
-            "size": 10  # Adjust batch size as needed
-        }
-
-        scrollData = es.search(
-            index="kibana_sample_data_ecommerce",
-            body=query_body,
-            scroll="1m"  # Scroll timeout
-        )
-
-        while True:
-            # Extract hits from the scroll response
-            hits = scrollData["hits"]["hits"]
-            if not hits:
-                break
-            
-            orders_chunk = [
-                {
-                    "order_id": hit["_source"]["order_id"],
-                    "customer_id": hit["_source"]["customer_id"],
-                    "customer_full_name": hit["_source"]["customer_full_name"],
-                    "taxful_total_price": hit["_source"]["taxful_total_price"],
-                    "order_date": hit["_source"]["order_date"]
-                }
-                for hit in hits
-            ]
-
-            await queue.put(orders_chunk)
-            
-            scroll_id = scrollData["_scroll_id"]
-            scrollData = es.scroll(scroll_id=scroll_id, scroll="1m")
-            await asyncio.sleep(2)
-
-        await queue.put(None)
-
-    except Exception as error:
-        print(f"ElasticSerach query error: {error}")
-        await queue.put(None)
-        raise error
-
-
-@subscription.source("ordersLastMonth")
-async def orders_last_month_generator(obj,info):
-    queue=asyncio.Queue()
-    asyncio.create_task(fetch_orders(queue))
-
-    while True:
-        orders_chunk=await queue.get()
-        print(orders_chunk)
-        if orders_chunk is None:
-            break
-        yield orders_chunk
-
-@subscription.field("ordersLastMonth")
-async def resolve_orders_last_month(orders, info):
-    # Return the orders fetched from the subscription source
-    return orders
-
+@subscription.field("orderCreated")
+async def resolve_order_created(order, info):
+    return order

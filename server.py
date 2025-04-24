@@ -1,38 +1,32 @@
-from ariadne import make_executable_schema, gql, load_schema_from_path
-from ariadne.asgi import GraphQL
-#from resolvers import query as resolvers_query
-from resolvers import query,mutation,subscription
-from fastapi import FastAPI
-from ariadne.asgi.handlers import GraphQLTransportWSHandler
-
-app=FastAPI()
-
-type_defs = load_schema_from_path("schema.graphql")
-
-schema = make_executable_schema(type_defs, [query,mutation,subscription])
-
-class CustomGraphQLTransportWSHandler(GraphQLTransportWSHandler):
-    async def on_connect(self, payload):
-        # Handle the WebSocket connection
-        print("WebSocket connection established")
-        
-        # Perform any additional actions here
-        
-        # Call the parent on_connect method
-        await super().on_connect(payload)
-
-# graphql=GraphQL(schema,debug=True)
-
-graphql= GraphQL(
-    schema,
-    debug=True,
-    websocket_handler=CustomGraphQLTransportWSHandler()
-    
+from ariadne import (
+    load_schema_from_path,
+    make_executable_schema,
 )
 
-# app.add_route('/graphql',graphql)
+from resolvers import query,mutation,subscription,initialize_broadcast
+from ariadne.asgi import GraphQL
+from ariadne.asgi.handlers import GraphQLTransportWSHandler
+from starlette.applications import Starlette
+from broadcaster import Broadcast
 
-app.mount('/graphql', graphql)
+broadcast = Broadcast("redis://localhost:6379")
 
+type_defs = load_schema_from_path("schema.graphql")
+schema = make_executable_schema(type_defs, [query, mutation, subscription])
 
+graphql_app = GraphQL(
+            schema=schema,
+            debug=True,
+            websocket_handler=GraphQLTransportWSHandler(),
+        )
 
+async def startup():
+    await initialize_broadcast()
+
+async def shutdown():
+    await broadcast.disconnect()
+
+app = Starlette(debug=True, on_startup=[startup], on_shutdown=[shutdown])
+
+app.mount("/graphql", graphql_app)
+app.add_websocket_route("/graphql", graphql_app)       

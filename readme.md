@@ -107,4 +107,37 @@ AriadneGraphQL-Elasticsearch-DemoApplication/
 ```
 
 
+## Examples
+
+1. Example Mutation query
+
+``` bash
+mutation {
+  createOrder(
+order_id: 12345
+  customer_id: 13
+  customer_full_name: "xyz"
+  taxful_total_price: 100
+  order_date: "2025-04-24T00:00:00")
+  {
+    order_id,
+    customer_full_name
+  }
+}
+```
+
+2. Example Query
+```bash
+query {
+  ordersByCustomer(customerId : 13) {
+    order_id,
+    order_date,
+    customer_full_name
+  }
+}
+```
+
+
+
+
 
